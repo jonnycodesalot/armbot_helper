@@ -3,6 +3,8 @@ from inputs import get_gamepad
 import math
 import threading
 import time
+import joint_motion
+from xarm import version
 
 
 # Mapping for a button.
@@ -29,6 +31,7 @@ class JoyMapping(Mapping):
 
 
 class XboxController:
+
     MAX_TRIG_VAL = math.pow(2, 8)
     MAX_JOY_VAL = math.pow(2, 15)
     # Expirimentally determined
@@ -57,13 +60,36 @@ class XboxController:
             target=self._monitor_controller, args=())
         self._monitor_thread.daemon = True
         self._monitor_thread.start()
+        joint_motion.RobotMain.pprint('xArm-Python-SDK Version:{}'.format(version.__version__))
+        self.arm = joint_motion.XArmAPI('192.168.1.187', baud_checkset=False)
+        self.robot_main = joint_motion.RobotMain(self.arm)
+        self.first_motion = False
+        self._state_changed_callback = False
+        self._count_changed_callback = False
+        self._error_warn_changed_callback = False
 
+    def _check_code(self, code, label):
+        if code != 0:
+            self.alive = False
+            ret1 = self.arm.get_state()
+            ret2 = self.arm.get_err_warn_code()
+            self.pprint('{}, code={}, connected={}, state={}, error={}, ret1={}. ret2={}'.format(label, code, self.arm.connected, self.arm.state, self.arm.error_code, ret1, ret2))
+        return True
+    
     def _monitor_controller(self):
         while True:
             events = get_gamepad()
             for event in events:
                 for mapping in self.button_mappings:
                     if event.code == mapping.code:
+                        _angle_speed = 35
+                        _angle_acc = 350
+                        code = 0
+                                           
+                        self.arm.release_error_warn_changed_callback(self._error_warn_changed_callback)
+                        self.arm.release_state_changed_callback(self._state_changed_callback)
+                        if hasattr(self.arm, 'release_count_changed_callback'):
+                            self.arm.release_count_changed_callback(self._count_changed_callback)
                         # Figure out the normalized value
                         new_value = event.state/mapping.divisor
                         # Apply the deadzone
@@ -77,6 +103,15 @@ class XboxController:
                         # Print it out
                         print(
                             f"Button {mapping.name} value {mapping.value}")
+                        if (new_value == 1):
+                            if (self.first_motion):
+                                code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)    
+                                self.first_motion = False
+                            else:                        
+                                code = self.arm.set_servo_angle(angle=[26.6, 15.5, 38.9, 0.0, 23.3, 26.6], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0) 
+                                self.first_motion = True
+                            if not self._check_code(code, 'set_servo_angle'):
+                                return    
 
 
 if __name__ == '__main__':
