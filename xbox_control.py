@@ -36,7 +36,7 @@ def empty():
 
 
 class Control():
-    def __init__(self, id, name):
+    def __init__(self, name, id):
         self.name = name
         self.id = id
 
@@ -70,12 +70,17 @@ class ButtonAction(enum.IntEnum):
     NUM_ACTIONS = 4
 
 
-class Button(Control):
+class Handler:
+    def notify_interval(self):
+        pass
+
+
+class Button(Control, Handler):
     # Number of intervals a button must be held to be satisfy ButtonAction.HOLD
     BUTTON_HOLD_INTERVAL_COUNT = 10
 
     def __init__(self, name, id):
-        super().__init__(id, name)
+        super().__init__(name, id)
         self.state = 0
         self.handlers = [None] * ButtonAction.NUM_ACTIONS
         # Start at 1 so we don't get fake release operations
@@ -123,10 +128,82 @@ class Button(Control):
             handler()
 
 
+class CartesianAxis(enum.IntEnum):
+    AXIS_X = 0
+    AXIS_Y = 1
+    AXIS_Z = 2
+
+
+class ServoCartesianXyz(Handler):
+    def __init__(self, name, initial_x, initial_y, initial_z):
+        self.name = name
+        self.coordinates = [initial_x, initial_y, initial_z]
+
+    def update_position(self, axis, value):
+        self.coordinates[axis] = value
+        print(self.name, "Position:", self.coordinates)
+
+    def notify_interval(self):
+        pass
+        # TODO: Move robot here
+
+
 class AnalogAxis(Control):
-    def __init__(self, name, id):
-        super().__init__(self, name, id)
-        self.position = 0.0
+    ANALOG_DEAD_ZONE = 0.08
+
+    def __init__(self, name, id, initial_value, divisor):
+        super().__init__(id=id, name=name)
+        self.value = initial_value
+        self.delta = 0
+        self.divisor = divisor
+        self.handler = None
+
+    # Set a handler for a specific button action
+    def set_handler(self, handler):
+        self.handler = handler
+
+    def notify_update(self, value):
+        normalized = value/self.divisor
+        if (normalized < self.ANALOG_DEAD_ZONE and normalized > -self.ANALOG_DEAD_ZONE):
+            self.delta = 0.0
+        else:
+            self.delta = normalized
+
+    def notify_interval(self):
+        if self.delta != 0.0:
+            self.value += self.delta
+            if (self.handler != None):
+                self.handler()
+
+
+class JoyAnalogAxis(AnalogAxis):
+    MAX_JOY_VAL = math.pow(2, 15)
+
+    def __init__(self, name, id,  initial_value):
+        super().__init__(name, id, initial_value, self.MAX_JOY_VAL)
+
+
+class TriggerAnalogAxis(AnalogAxis):
+    MAX_TRIGGER_VAL = math.pow(2, 8)
+
+    def __init__(self, name, id,  initial_value):
+        super().__init__(name, id, initial_value, self.MAX_TRIGGER_VAL)
+
+
+class TriggerServoControllerAxis(TriggerAnalogAxis):
+    def __init__(self, name,  id, servo_cartesian_xyz, axis):
+        super().__init__(
+            name,  id, initial_value=servo_cartesian_xyz.coordinates[axis])
+        super().set_handler(
+            handler=lambda: servo_cartesian_xyz.update_position(axis, self.value))
+
+
+class JoyServoControllerAxis(JoyAnalogAxis):
+    def __init__(self, name, id,  servo_cartesian_xyz, axis):
+        super().__init__(
+            name, id, initial_value=servo_cartesian_xyz.coordinates[axis])
+        super().set_handler(
+            handler=lambda: servo_cartesian_xyz.update_position(axis, self.value))
 
 
 class Mapping:
@@ -222,8 +299,17 @@ class XboxController:
         # self.arm.set_state(ArmState.SPORT_STATE)
         # self.arm.motion_enable(enable=True)
         self.it_changed = False
+        self.cart = ServoCartesianXyz("Robot position", 0.0, 0.0, 0.0)
+
         self.buttons = [Button(id='BTN_EAST', name='B'),
-                        Button(id='BTN_WEST', name='X')]
+                        Button(id='BTN_WEST', name='X'),
+                        JoyServoControllerAxis(
+                            id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X),
+                        JoyServoControllerAxis(
+                            id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y),
+                        JoyServoControllerAxis(
+                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z)
+                        ]
         self.buttons[0].set_handler(
             ButtonAction.PRESS, lambda: print("Pressed B action"))
         self.buttons[0].set_handler(
