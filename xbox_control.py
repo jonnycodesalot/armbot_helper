@@ -6,7 +6,6 @@ import datetime
 import time
 import joint_motion
 import enum
-import overrides
 from xarm import version
 
 
@@ -37,7 +36,7 @@ def empty():
 
 
 class Control():
-    def __init__(self, name, id):
+    def __init__(self, id, name):
         self.name = name
         self.id = id
 
@@ -45,6 +44,13 @@ class Control():
 
     def notify_update(self, value):
         pass
+
+    # Returns true of this control captures the event, false otherwise
+    def notify_event(self, event_id, value):
+        if self.id == event_id:
+            self.notify_update(value)
+            return True
+        return False
 
     def notify_interval(self):
         pass
@@ -69,17 +75,17 @@ class Button(Control):
     BUTTON_HOLD_INTERVAL_COUNT = 10
 
     def __init__(self, name, id):
-        super().__init__(self, name, id)
+        super().__init__(id, name)
         self.state = 0
         self.handlers = [None] * ButtonAction.NUM_ACTIONS
-        self.intervals_since_update = 0
+        # Start at 1 so we don't get fake release operations
+        self.intervals_since_update = 1
         self.press_hold_action_performed = False
 
     # Set a handler for a specific button action
     def set_handler(self, button_action, handler):
         self.handlers[button_action] = handler
 
-    @overrides
     def notify_update(self, value):
         self.state = value
         handler = None
@@ -90,9 +96,9 @@ class Button(Control):
         # Reset our hold interval counter
         self.intervals_since_update = 0
 
-    @overrides
     def notify_interval(self):
         handler = None
+        output_prefix = ""
         # increment intervals since update
         self.intervals_since_update = self.intervals_since_update+1
         if self.state == 1:
@@ -101,14 +107,19 @@ class Button(Control):
                 if self.press_hold_action_performed == False:
                     self.press_hold_action_performed = True
                     handler = self.handlers[ButtonAction.HOLD_DO_ONCE]
+                    output_prefix = "Held (once)"
                 if handler == None:
                     # No hold do once action - do the repeat action
                     handler = self.handlers[ButtonAction.HOLD_REPEAT]
+                    output_prefix = "Held (repeat)"
             elif self.intervals_since_update == 1:
                 handler = self.handlers[ButtonAction.PRESS]
+                output_prefix = "Pressed"
         elif self.intervals_since_update == 1:  # state == 0
             handler = self.handlers[ButtonAction.RELEASE]
+            output_prefix = "Released"
         if handler != None:
+            print(output_prefix, self.name)
             handler()
 
 
@@ -199,18 +210,32 @@ class XboxController:
         self._monitor_thread.start()
         joint_motion.RobotMain.pprint(
             'xArm-Python-SDK Version:{}'.format(version.__version__))
-        self.arm = joint_motion.XArmAPI('192.168.1.187', baud_checkset=False)
-        self.robot_main = joint_motion.RobotMain(self.arm)
+        # self.arm = joint_motion.XArmAPI('192.168.1.187', baud_checkset=False)
+        # self.robot_main = joint_motion.RobotMain(self.arm)
         self.first_motion = False
         self._state_changed_callback = False
         self._count_changed_callback = False
         self._error_warn_changed_callback = False
-        self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
-        self.arm.set_position(*current_pose, wait=True)
-        self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
-        self.arm.set_state(ArmState.SPORT_STATE)
-        self.arm.motion_enable(enable=True)
+        # self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
+        # self.arm.set_position(*current_pose, wait=True)
+        # self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
+        # self.arm.set_state(ArmState.SPORT_STATE)
+        # self.arm.motion_enable(enable=True)
         self.it_changed = False
+        self.buttons = [Button(id='BTN_EAST', name='B'),
+                        Button(id='BTN_WEST', name='X')]
+        self.buttons[0].set_handler(
+            ButtonAction.PRESS, lambda: print("Pressed B action"))
+        self.buttons[0].set_handler(
+            ButtonAction.RELEASE, lambda: print("Released B action"))
+        self.buttons[1].set_handler(
+            ButtonAction.PRESS, lambda: print("Pressed X action"))
+        self.buttons[1].set_handler(
+            ButtonAction.HOLD_DO_ONCE, lambda: print("Holding X action"))
+        self.buttons[1].set_handler(
+            ButtonAction.HOLD_REPEAT, lambda: print("Holding X Repeat action"))
+        self.buttons[1].set_handler(
+            ButtonAction.RELEASE, lambda: print("Released X action"))
 
     def _check_code(self, code, label):
         if code != 0:
@@ -225,40 +250,43 @@ class XboxController:
         while True:
             events = get_gamepad()
             for event in events:
-                for mapping in self.button_mappings:
-                    if event.code == mapping.code:
-                        _angle_speed = 35
-                        _angle_acc = 350
-                        code = 0
+                for button in self.buttons:
+                    if button.notify_event(event.code, event.state):
+                        break
+                # for mapping in self.button_mappings:
+                #     if event.code == mapping.code:
+                #         _angle_speed = 35
+                #         _angle_acc = 350
+                #         code = 0
 
-                        self.arm.release_error_warn_changed_callback(
-                            self._error_warn_changed_callback)
-                        self.arm.release_state_changed_callback(
-                            self._state_changed_callback)
-                        if hasattr(self.arm, 'release_count_changed_callback'):
-                            self.arm.release_count_changed_callback(
-                                self._count_changed_callback)
-                        # Figure out the normalized value
-                        new_value = event.state/mapping.divisor
-                        # Apply the deadzone
-                        if (new_value > -mapping.deadzone and new_value < mapping.deadzone):
-                            new_value = 0
-                        if (mapping.value == new_value):
-                            # no change
-                            continue
-                        # cache the new value
-                        mapping.value = new_value
-                        # Print it out
-                        print(
-                            f"Button {mapping.name} value {mapping.value}")
-                        # if (new_value != 0):
-                        # code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)
-                        if (mapping.call != empty):
-                            code = mapping.call(self, new_value)
-                            self.first_motion = False
-                            if not self._check_code(code, 'set_servo_cartesian'):
-                                return
-                        # if (new_value == 0):
+                #         self.arm.release_error_warn_changed_callback(
+                #             self._error_warn_changed_callback)
+                #         self.arm.release_state_changed_callback(
+                #             self._state_changed_callback)
+                #         if hasattr(self.arm, 'release_count_changed_callback'):
+                #             self.arm.release_count_changed_callback(
+                #                 self._count_changed_callback)
+                #         # Figure out the normalized value
+                #         new_value = event.state/mapping.divisor
+                #         # Apply the deadzone
+                #         if (new_value > -mapping.deadzone and new_value < mapping.deadzone):
+                #             new_value = 0
+                #         if (mapping.value == new_value):
+                #             # no change
+                #             continue
+                #         # cache the new value
+                #         mapping.value = new_value
+                #         # Print it out
+                #         print(
+                #             f"Button {mapping.name} value {mapping.value}")
+                #         # if (new_value != 0):
+                #         # code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)
+                #         if (mapping.call != empty):
+                #             code = mapping.call(self, new_value)
+                #             self.first_motion = False
+                #             if not self._check_code(code, 'set_servo_cartesian'):
+                #                 return
+                #         # if (new_value == 0):
 
 
 if __name__ == '__main__':
@@ -267,10 +295,12 @@ if __name__ == '__main__':
     # needs_update = True
     while (True):
         time.sleep(0.05)
-        if (pose_delta != [0, 0, 0, 0, 0, 0]):
-            for i in range(6):
-                current_pose[i] += pose_delta[i]
-            code = joy.arm.set_servo_cartesian(
-                current_pose, speed=my_speed, mvacc=my_mvacc)
-            if not joy._check_code(code, 'set_servo_cartesian'):
-                exit()
+        for button in joy.buttons:
+            button.notify_interval()
+        # if (pose_delta != [0, 0, 0, 0, 0, 0]):
+        #     for i in range(6):
+        #         current_pose[i] += pose_delta[i]
+        #     code = joy.arm.set_servo_cartesian(
+        #         current_pose, speed=my_speed, mvacc=my_mvacc)
+        #     if not joy._check_code(code, 'set_servo_cartesian'):
+        #         exit()
