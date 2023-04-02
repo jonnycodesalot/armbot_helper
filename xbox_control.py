@@ -4,14 +4,36 @@ import math
 import threading
 import time
 import joint_motion
+import enum
 from xarm import version
 
-def empty(): 
+
+# Enums for the various arm APIs
+class ArmState(enum.IntEnum):
+    SPORT_STATE = 0
+    PAUSE_STATE = 3
+    STOP_STATE = 4
+
+
+class ArmMode(enum.IntEnum):
+    POSITION_CONTROL_MODE = 0
+    SERVO_MOTION_MODE = 1
+    JOINT_TEACHING_MODE = 2
+    CART_TEACHING_MODE_INVALID_ = 3
+    JOINT_VELO_CONTROL_MODE = 4
+    CART_VELO_CONTROL_MODE = 5
+    JOINT_ONLINE_TRAJ_PLAN_MODE = 6
+    CART_ONLINE_TRAJ_PLAN_MODE = 7
+
+
+def empty():
     return
 
 # Mapping for a button.
 # code - the code as returned by python input library when the button is pressed
 # name - the display name of the button
+
+
 class Mapping:
     def __init__(self, code, name, function):
         self.code = code
@@ -27,61 +49,63 @@ class Mapping:
 
 
 class JoyMapping(Mapping):
-    def __init__(self, code, name, divisor, deadzone,function):
+    def __init__(self, code, name, divisor, deadzone, function):
         Mapping.__init__(self, code, name, function)
         self.divisor = divisor
         self.deadzone = deadzone
 
 
-
-current_pose = [241,-23,352,180,0,0]
-pose_delta=[0,0,0,0,0,0]
+current_pose = [241, -23, 352, 180, 0, 0]
+pose_delta = [0, 0, 0, 0, 0, 0]
 my_speed = 30
 my_mvacc = 2000
 
+
 class XboxController:
 
-    def increment_x(self,value):
+    def increment_x(self, value):
         pose_delta[0] = value
         self.it_changed = True
-        #return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-        #return self.arm.vc_set_cartesian_velocity(speeds=[2,0,0,0,0,0],is_radian=False,duration=2)
+        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
+        # return self.arm.vc_set_cartesian_velocity(speeds=[2,0,0,0,0,0],is_radian=False,duration=2)
         # return self.arm.set_position(x=-10, y=0, z=0, speed=30, relative=True, wait=False)
-        
-    def joy_x(self,value):
+
+    def joy_x(self, value):
         pose_delta[0] = value
         self.it_changed = True
-        #return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-    def increment_y(self,value):
+        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
+
+    def increment_y(self, value):
         pose_delta[1] = value
         self.it_changed = True
        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-    def increment_z(self,value):
+
+    def increment_z(self, value):
         pose_delta[2] = value
         self.it_changed = True
-        #return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
+        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
 
     MAX_TRIG_VAL = math.pow(2, 8)
     MAX_JOY_VAL = math.pow(2, 15)
     # Expirimentally determined
     JOY_DEAD_ZONE = 0.05
     TRIG_DEAD_ZONE = 0.0
-    button_mappings = [Mapping('BTN_EAST', 'B Button',increment_z),
-                       Mapping('BTN_WEST', 'X Button',increment_x),
-                       Mapping('BTN_NORTH', 'Y Button',increment_y),
-                       Mapping('BTN_SOUTH', 'A Button',empty),
-                       Mapping('BTN_TL', 'Left Bumper',empty),
-                       Mapping('BTN_RL', 'Right Bumper',empty),
-                       Mapping('BTN_START', 'Start Button',empty),
-                       Mapping('BTN_SELECT', 'Select Button',empty),
-                       Mapping('ABS_HAT0X', 'Pad X',empty),
-                       Mapping('ABS_HAT0Y', 'Pad Y',empty),
-                       JoyMapping('ABS_X', 'Left Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE,joy_x),  # NOQA
-                       #JoyMapping('ABS_Y', 'Left Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
-                       JoyMapping('ABS_RY', 'Right Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
-                       JoyMapping('ABS_RX', 'Right Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
-                       JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE,empty),  # NOQA
-                       JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE,empty),  # NOQA
+    button_mappings = [Mapping('BTN_EAST', 'B Button', increment_z),
+                       Mapping('BTN_WEST', 'X Button', increment_x),
+                       Mapping('BTN_NORTH', 'Y Button', increment_y),
+                       Mapping('BTN_SOUTH', 'A Button', empty),
+                       Mapping('BTN_TL', 'Left Bumper', empty),
+                       Mapping('BTN_RL', 'Right Bumper', empty),
+                       Mapping('BTN_START', 'Start Button', empty),
+                       Mapping('BTN_SELECT', 'Select Button', empty),
+                       Mapping('ABS_HAT0X', 'Pad X', empty),
+                       Mapping('ABS_HAT0Y', 'Pad Y', empty),
+                       JoyMapping('ABS_X', 'Left Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, joy_x),  # NOQA
+                       # JoyMapping('ABS_Y', 'Left Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
+                       JoyMapping('ABS_RY', 'Right Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
+                       JoyMapping('ABS_RX', 'Right Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
+                       JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
+                       JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
                        ]
 
     def __init__(self):
@@ -97,10 +121,10 @@ class XboxController:
         self._state_changed_callback = False
         self._count_changed_callback = False
         self._error_warn_changed_callback = False
-        self.arm.set_mode(mode=0)
+        self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
         self.arm.set_position(*current_pose, wait=True)
-        self.arm.set_mode(mode=1)
-        self.arm.set_state(0)
+        self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
+        self.arm.set_state(ArmState.SPORT_STATE)
         self.arm.motion_enable(enable=True)
         self.it_changed = False
 
@@ -144,14 +168,13 @@ class XboxController:
                         print(
                             f"Button {mapping.name} value {mapping.value}")
                         # if (new_value != 0):
-                               # code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)
+                        # code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)
                         if (mapping.call != empty):
-                            code = mapping.call(self,new_value)
+                            code = mapping.call(self, new_value)
                             self.first_motion = False
                             if not self._check_code(code, 'set_servo_cartesian'):
                                 return
                         # if (new_value == 0):
-                        
 
 
 if __name__ == '__main__':
@@ -160,10 +183,10 @@ if __name__ == '__main__':
     # needs_update = True
     while (True):
         time.sleep(0.05)
-        if (pose_delta != [0,0,0,0,0,0]):
+        if (pose_delta != [0, 0, 0, 0, 0, 0]):
             for i in range(6):
                 current_pose[i] += pose_delta[i]
-            code = joy.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
+            code = joy.arm.set_servo_cartesian(
+                current_pose, speed=my_speed, mvacc=my_mvacc)
             if not joy._check_code(code, 'set_servo_cartesian'):
                 exit()
-
