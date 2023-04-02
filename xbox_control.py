@@ -2,9 +2,11 @@
 from inputs import get_gamepad
 import math
 import threading
+import datetime
 import time
 import joint_motion
 import enum
+import overrides
 from xarm import version
 
 
@@ -32,6 +34,88 @@ def empty():
 # Mapping for a button.
 # code - the code as returned by python input library when the button is pressed
 # name - the display name of the button
+
+
+class Control():
+    def __init__(self, name, id):
+        self.name = name
+        self.id = id
+
+    # Called when the button is pressed.  Derived object implements relevant logic
+
+    def notify_update(self, value):
+        pass
+
+    def notify_interval(self):
+        pass
+
+# Possible actions for a button
+
+
+class ButtonAction(enum.IntEnum):
+    # Action occurs when pressed
+    PRESS = 0
+    # Action occurs when released
+    RELEASE = 1
+    # Action occurs BUTTON_HOLD_MS after the button is held down.
+    # Using HOLD_DO_ONCE or HOLD_REPEAT will override the action set on PRESS
+    HOLD_DO_ONCE = 2
+    HOLD_REPEAT = 3
+    NUM_ACTIONS = 4
+
+
+class Button(Control):
+    # Number of intervals a button must be held to be satisfy ButtonAction.HOLD
+    BUTTON_HOLD_INTERVAL_COUNT = 10
+
+    def __init__(self, name, id):
+        super().__init__(self, name, id)
+        self.state = 0
+        self.handlers = [None] * ButtonAction.NUM_ACTIONS
+        self.intervals_since_update = 0
+        self.press_hold_action_performed = False
+
+    # Set a handler for a specific button action
+    def set_handler(self, button_action, handler):
+        self.handlers[button_action] = handler
+
+    @overrides
+    def notify_update(self, value):
+        self.state = value
+        handler = None
+        # figure out what handler to use,
+        if value == 0:
+            # Clear the hold metadata
+            self.press_hold_action_performed = False
+        # Reset our hold interval counter
+        self.intervals_since_update = 0
+
+    @overrides
+    def notify_interval(self):
+        handler = None
+        # increment intervals since update
+        self.intervals_since_update = self.intervals_since_update+1
+        if self.state == 1:
+            if self.intervals_since_update >= self.BUTTON_HOLD_INTERVAL_COUNT:
+                # The button is being held down.  Do the hold actions
+                if self.press_hold_action_performed == False:
+                    self.press_hold_action_performed = True
+                    handler = self.handlers[ButtonAction.HOLD_DO_ONCE]
+                if handler == None:
+                    # No hold do once action - do the repeat action
+                    handler = self.handlers[ButtonAction.HOLD_REPEAT]
+            elif self.intervals_since_update == 1:
+                handler = self.handlers[ButtonAction.PRESS]
+        elif self.intervals_since_update == 1:  # state == 0
+            handler = self.handlers[ButtonAction.RELEASE]
+        if handler != None:
+            handler()
+
+
+class AnalogAxis(Control):
+    def __init__(self, name, id):
+        super().__init__(self, name, id)
+        self.position = 0.0
 
 
 class Mapping:
