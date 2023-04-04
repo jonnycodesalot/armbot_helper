@@ -135,17 +135,26 @@ class CartesianAxis(enum.IntEnum):
 
 
 class ServoCartesianXyz(Handler):
-    def __init__(self, name, initial_x, initial_y, initial_z):
+    def __init__(self, name, controller, initial_x, initial_y, initial_z):
         self.name = name
         self.coordinates = [initial_x, initial_y, initial_z]
+        self.controller = controller
+        self.updated = False
 
     def update_position(self, axis, value):
         self.coordinates[axis] = value
         print(self.name, "Position:", self.coordinates)
+        self.updated = True
 
     def notify_interval(self):
-        pass
-        # TODO: Move robot here
+        if (self.updated):
+            self.updated = False
+            new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
+                        self.coordinates[CartesianAxis.AXIS_Z], starting_pose[3], starting_pose[4], starting_pose[5]]
+            code = self.controller.arm.set_servo_cartesian(
+                new_pose, speed=my_speed, mvacc=my_mvacc)
+            if not self.controller._check_code(code, 'set_servo_cartesian'):
+                exit()
 
 
 class AnalogAxis(Control):
@@ -171,7 +180,7 @@ class AnalogAxis(Control):
 
     def notify_interval(self):
         if self.delta != 0.0:
-            self.value += self.delta
+            self.value += (self.delta*2.0)
             if (self.handler != None):
                 self.handler()
 
@@ -227,58 +236,19 @@ class JoyMapping(Mapping):
         self.deadzone = deadzone
 
 
-current_pose = [241, -23, 352, 180, 0, 0]
+starting_pose = [241, -23, 352, 180, 0, 0]
 pose_delta = [0, 0, 0, 0, 0, 0]
 my_speed = 30
-my_mvacc = 2000
+my_mvacc = 5000
 
 
 class XboxController:
-
-    def increment_x(self, value):
-        pose_delta[0] = value
-        self.it_changed = True
-        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-        # return self.arm.vc_set_cartesian_velocity(speeds=[2,0,0,0,0,0],is_radian=False,duration=2)
-        # return self.arm.set_position(x=-10, y=0, z=0, speed=30, relative=True, wait=False)
-
-    def joy_x(self, value):
-        pose_delta[0] = value
-        self.it_changed = True
-        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-
-    def increment_y(self, value):
-        pose_delta[1] = value
-        self.it_changed = True
-       # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
-
-    def increment_z(self, value):
-        pose_delta[2] = value
-        self.it_changed = True
-        # return self.arm.set_servo_cartesian(current_pose, speed=my_speed, mvacc=my_mvacc)
 
     MAX_TRIG_VAL = math.pow(2, 8)
     MAX_JOY_VAL = math.pow(2, 15)
     # Expirimentally determined
     JOY_DEAD_ZONE = 0.05
     TRIG_DEAD_ZONE = 0.0
-    button_mappings = [Mapping('BTN_EAST', 'B Button', increment_z),
-                       Mapping('BTN_WEST', 'X Button', increment_x),
-                       Mapping('BTN_NORTH', 'Y Button', increment_y),
-                       Mapping('BTN_SOUTH', 'A Button', empty),
-                       Mapping('BTN_TL', 'Left Bumper', empty),
-                       Mapping('BTN_RL', 'Right Bumper', empty),
-                       Mapping('BTN_START', 'Start Button', empty),
-                       Mapping('BTN_SELECT', 'Select Button', empty),
-                       Mapping('ABS_HAT0X', 'Pad X', empty),
-                       Mapping('ABS_HAT0Y', 'Pad Y', empty),
-                       JoyMapping('ABS_X', 'Left Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, joy_x),  # NOQA
-                       # JoyMapping('ABS_Y', 'Left Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
-                       JoyMapping('ABS_RY', 'Right Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
-                       JoyMapping('ABS_RX', 'Right Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
-                       JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
-                       JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
-                       ]
 
     def __init__(self):
         self._monitor_thread = threading.Thread(
@@ -287,19 +257,21 @@ class XboxController:
         self._monitor_thread.start()
         joint_motion.RobotMain.pprint(
             'xArm-Python-SDK Version:{}'.format(version.__version__))
-        # self.arm = joint_motion.XArmAPI('192.168.1.187', baud_checkset=False)
-        # self.robot_main = joint_motion.RobotMain(self.arm)
+        self.arm = joint_motion.XArmAPI('192.168.1.187', baud_checkset=False)
+        self.robot_main = joint_motion.RobotMain(self.arm)
         self.first_motion = False
         self._state_changed_callback = False
         self._count_changed_callback = False
         self._error_warn_changed_callback = False
-        # self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
-        # self.arm.set_position(*current_pose, wait=True)
-        # self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
-        # self.arm.set_state(ArmState.SPORT_STATE)
-        # self.arm.motion_enable(enable=True)
+        self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
+        self.arm.set_state(ArmState.SPORT_STATE)
+        self.arm.set_position(*starting_pose, wait=True)
+        self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
+        self.arm.set_state(ArmState.SPORT_STATE)
+        self.arm.motion_enable(enable=True)
         self.it_changed = False
-        self.cart = ServoCartesianXyz("Robot position", 0.0, 0.0, 0.0)
+        self.cart = ServoCartesianXyz(
+            "Robot position", self, starting_pose[0], starting_pose[1], starting_pose[2])
 
         self.buttons = [Button(id='BTN_EAST', name='B'),
                         Button(id='BTN_WEST', name='X'),
@@ -380,9 +352,10 @@ if __name__ == '__main__':
     # For now, just keep the program alive 5 minutes.  Ultimately we'll probably do some other processing here.
     # needs_update = True
     while (True):
-        time.sleep(0.05)
+        time.sleep(0.02)
         for button in joy.buttons:
             button.notify_interval()
+        joy.cart.notify_interval()
         # if (pose_delta != [0, 0, 0, 0, 0, 0]):
         #     for i in range(6):
         #         current_pose[i] += pose_delta[i]
