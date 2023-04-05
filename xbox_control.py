@@ -132,9 +132,9 @@ class CartesianAxis(enum.IntEnum):
     AXIS_X = 0
     AXIS_Y = 1
     AXIS_Z = 2
-    AXIS_ROLL = 3
-    AXIS_PITCH = 4
-    AXIS_YAW = 5
+    AXIS_ROLL_X = 3
+    AXIS_ROLL_Y = 4
+    AXIS_ROLL_Z = 5
 
 
 class ServoCartesianXyz(Handler):
@@ -153,8 +153,8 @@ class ServoCartesianXyz(Handler):
         if (self.updated):
             self.updated = False
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
-                        self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL],
-                        self.coordinates[CartesianAxis.AXIS_PITCH], self.coordinates[CartesianAxis.AXIS_YAW]]
+                        self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
+                        self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
             code = self.controller.arm.set_servo_cartesian_aa(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
@@ -306,9 +306,9 @@ class XboxController:
                         JoyServoControllerAxis(
                             id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y, multiplier=2.0),
                         JoyServoControllerAxis(
-                            id='ABS_RX', name="Right Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL, multiplier=0.5),
+                            id='ABS_RX', name="Right Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL_X, multiplier=0.5),
                         JoyServoControllerAxis(
-                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_PITCH, multiplier=0.5),
+                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL_Y, multiplier=0.5),
                         # JoyServoControllerAxis(
                         #     id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z),
                         TriggerServoControllerAxis(
@@ -329,13 +329,13 @@ class XboxController:
         self.buttons[1].set_handler(
             ButtonAction.RELEASE, lambda: print("Released X action"))
         self.buttons[2].set_handler(
-            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, -1.0))
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
         self.buttons[3].set_handler(
-            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, 1.0))
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
         self.buttons[2].set_handler(
-            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, -1.0))
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
         self.buttons[3].set_handler(
-            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, 1.0))
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
 
     def _check_code(self, code, label):
         if code != 0:
