@@ -132,17 +132,20 @@ class CartesianAxis(enum.IntEnum):
     AXIS_X = 0
     AXIS_Y = 1
     AXIS_Z = 2
+    AXIS_ROLL = 3
+    AXIS_PITCH = 4
+    AXIS_YAW = 5
 
 
 class ServoCartesianXyz(Handler):
     def __init__(self, name, controller, initial_x, initial_y, initial_z):
         self.name = name
-        self.coordinates = [initial_x, initial_y, initial_z]
+        self.coordinates = starting_pose
         self.controller = controller
         self.updated = False
 
-    def update_position(self, axis, value):
-        self.coordinates[axis] = value
+    def add_delta(self, axis, value):
+        self.coordinates[axis] += value
         print(self.name, "Position:", self.coordinates)
         self.updated = True
 
@@ -150,7 +153,8 @@ class ServoCartesianXyz(Handler):
         if (self.updated):
             self.updated = False
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
-                        self.coordinates[CartesianAxis.AXIS_Z], starting_pose[3], starting_pose[4], starting_pose[5]]
+                        self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL],
+                        self.coordinates[CartesianAxis.AXIS_PITCH], self.coordinates[CartesianAxis.AXIS_YAW]]
             code = self.controller.arm.set_servo_cartesian(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
@@ -158,61 +162,61 @@ class ServoCartesianXyz(Handler):
 
 
 class AnalogAxis(Control):
-    ANALOG_DEAD_ZONE = 0.08
+    ANALOG_DEAD_ZONE = 0.12
 
-    def __init__(self, name, id, initial_value, divisor):
+    def __init__(self, name, id, initial_value, encoder_divisor, position_multiplier):
         super().__init__(id=id, name=name)
         self.value = initial_value
         self.delta = 0
-        self.divisor = divisor
+        self.encoder_divisor = encoder_divisor
         self.handler = None
+        self.position_multiplier = position_multiplier
 
     # Set a handler for a specific button action
     def set_handler(self, handler):
         self.handler = handler
 
     def notify_update(self, value):
-        normalized = value/self.divisor
+        normalized = value/self.encoder_divisor
         if (normalized < self.ANALOG_DEAD_ZONE and normalized > -self.ANALOG_DEAD_ZONE):
             self.delta = 0.0
         else:
-            self.delta = normalized
+            self.delta = normalized * self.position_multiplier
 
     def notify_interval(self):
         if self.delta != 0.0:
-            self.value += (self.delta*2.0)
             if (self.handler != None):
-                self.handler()
+                self.handler(delta=self.delta*2.0)
 
 
 class JoyAnalogAxis(AnalogAxis):
     MAX_JOY_VAL = math.pow(2, 15)
 
-    def __init__(self, name, id,  initial_value):
-        super().__init__(name, id, initial_value, self.MAX_JOY_VAL)
+    def __init__(self, name, id,  initial_value, multiplier):
+        super().__init__(name, id, initial_value, self.MAX_JOY_VAL, multiplier)
 
 
 class TriggerAnalogAxis(AnalogAxis):
     MAX_TRIGGER_VAL = math.pow(2, 8)
 
-    def __init__(self, name, id,  initial_value):
-        super().__init__(name, id, initial_value, self.MAX_TRIGGER_VAL)
+    def __init__(self, name, id,  initial_value, multiplier):
+        super().__init__(name, id, initial_value, self.MAX_TRIGGER_VAL, multiplier)
 
 
 class TriggerServoControllerAxis(TriggerAnalogAxis):
-    def __init__(self, name,  id, servo_cartesian_xyz, axis):
+    def __init__(self, name,  id, servo_cartesian_xyz, axis, multiplier):
         super().__init__(
-            name,  id, initial_value=servo_cartesian_xyz.coordinates[axis])
+            name,  id, initial_value=servo_cartesian_xyz.coordinates[axis], multiplier=multiplier)
         super().set_handler(
-            handler=lambda: servo_cartesian_xyz.update_position(axis, self.value))
+            handler=lambda delta: servo_cartesian_xyz.add_delta(axis, delta))
 
 
 class JoyServoControllerAxis(JoyAnalogAxis):
-    def __init__(self, name, id,  servo_cartesian_xyz, axis):
+    def __init__(self, name, id,  servo_cartesian_xyz, axis, multiplier):
         super().__init__(
-            name, id, initial_value=servo_cartesian_xyz.coordinates[axis])
+            name, id, initial_value=servo_cartesian_xyz.coordinates[axis], multiplier=multiplier)
         super().set_handler(
-            handler=lambda: servo_cartesian_xyz.update_position(axis, self.value))
+            handler=lambda delta: servo_cartesian_xyz.add_delta(axis, delta))
 
 
 class Mapping:
@@ -250,6 +254,24 @@ class XboxController:
     JOY_DEAD_ZONE = 0.05
     TRIG_DEAD_ZONE = 0.0
 
+    # button_mappings = [Mapping('BTN_EAST', 'B Button', increment_z),
+    #                Mapping('BTN_WEST', 'X Button', increment_x),
+    #                Mapping('BTN_NORTH', 'Y Button', increment_y),
+    #                Mapping('BTN_SOUTH', 'A Button', empty),
+    #                Mapping('BTN_TL', 'Left Bumper', empty),
+    #                Mapping('BTN_RL', 'Right Bumper', empty),
+    #                Mapping('BTN_START', 'Start Button', empty),
+    #                Mapping('BTN_SELECT', 'Select Button', empty),
+    #                Mapping('ABS_HAT0X', 'Pad X', empty),
+    #                Mapping('ABS_HAT0Y', 'Pad Y', empty),
+    #                JoyMapping('ABS_X', 'Left Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, joy_x),  # NOQA
+    #                # JoyMapping('ABS_Y', 'Left Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE,empty),  # NOQA
+    #                JoyMapping('ABS_RY', 'Right Joy Y', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
+    #                JoyMapping('ABS_RX', 'Right Joy X', MAX_JOY_VAL, JOY_DEAD_ZONE, empty),  # NOQA
+    #                JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
+    #                JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
+    #                ]
+
     def __init__(self):
         self._monitor_thread = threading.Thread(
             target=self._monitor_controller, args=())
@@ -273,14 +295,26 @@ class XboxController:
         self.cart = ServoCartesianXyz(
             "Robot position", self, starting_pose[0], starting_pose[1], starting_pose[2])
 
+    #   JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
+    #                    JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
         self.buttons = [Button(id='BTN_EAST', name='B'),
                         Button(id='BTN_WEST', name='X'),
+                        Button(id='BTN_TL', name='Left Bumper'),
+                        Button(id='BTN_TR', name='Right Bumper'),
                         JoyServoControllerAxis(
-                            id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X),
+                            id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=2.0),
                         JoyServoControllerAxis(
-                            id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y),
+                            id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y, multiplier=2.0),
                         JoyServoControllerAxis(
-                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z)
+                            id='ABS_RX', name="Right Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL, multiplier=0.5),
+                        JoyServoControllerAxis(
+                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_PITCH, multiplier=0.5),
+                        # JoyServoControllerAxis(
+                        #     id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z),
+                        TriggerServoControllerAxis(
+                            id='ABS_RZ', name="Trig Right", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z, multiplier=2.0),
+                        TriggerServoControllerAxis(
+                            id='ABS_Z', name="Trig Left", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z, multiplier=-2.0)
                         ]
         self.buttons[0].set_handler(
             ButtonAction.PRESS, lambda: print("Pressed B action"))
@@ -294,6 +328,14 @@ class XboxController:
             ButtonAction.HOLD_REPEAT, lambda: print("Holding X Repeat action"))
         self.buttons[1].set_handler(
             ButtonAction.RELEASE, lambda: print("Released X action"))
+        self.buttons[2].set_handler(
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, -1.0))
+        self.buttons[3].set_handler(
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, 1.0))
+        self.buttons[2].set_handler(
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, -1.0))
+        self.buttons[3].set_handler(
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_YAW, 1.0))
 
     def _check_code(self, code, label):
         if code != 0:
