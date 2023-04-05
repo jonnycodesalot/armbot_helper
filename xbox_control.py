@@ -297,10 +297,11 @@ class XboxController:
 
     #   JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
     #                    JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
-        self.buttons = [Button(id='BTN_EAST', name='B'),
+        self.buttons = [Button(id='BTN_NORTH', name='Y'),
                         Button(id='BTN_WEST', name='X'),
                         Button(id='BTN_TL', name='Left Bumper'),
                         Button(id='BTN_TR', name='Right Bumper'),
+                        Button(id='BTN_SOUTH', name='A'),
                         JoyServoControllerAxis(
                             id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=2.0),
                         JoyServoControllerAxis(
@@ -317,17 +318,9 @@ class XboxController:
                             id='ABS_Z', name="Trig Left", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z, multiplier=-2.0)
                         ]
         self.buttons[0].set_handler(
-            ButtonAction.PRESS, lambda: print("Pressed B action"))
-        self.buttons[0].set_handler(
-            ButtonAction.RELEASE, lambda: print("Released B action"))
+            ButtonAction.PRESS, lambda: self.arm.close_lite6_gripper())
         self.buttons[1].set_handler(
-            ButtonAction.PRESS, lambda: print("Pressed X action"))
-        self.buttons[1].set_handler(
-            ButtonAction.HOLD_DO_ONCE, lambda: print("Holding X action"))
-        self.buttons[1].set_handler(
-            ButtonAction.HOLD_REPEAT, lambda: print("Holding X Repeat action"))
-        self.buttons[1].set_handler(
-            ButtonAction.RELEASE, lambda: print("Released X action"))
+            ButtonAction.PRESS, lambda: self.arm.open_lite6_gripper())
         self.buttons[2].set_handler(
             ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
         self.buttons[3].set_handler(
@@ -336,6 +329,8 @@ class XboxController:
             ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
         self.buttons[3].set_handler(
             ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
+        self.buttons[4].set_handler(
+            ButtonAction.PRESS, lambda: self.arm.stop_lite6_gripper())
 
     def _check_code(self, code, label):
         if code != 0:
