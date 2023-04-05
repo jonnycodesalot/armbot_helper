@@ -155,7 +155,7 @@ class ServoCartesianXyz(Handler):
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
                         self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL],
                         self.coordinates[CartesianAxis.AXIS_PITCH], self.coordinates[CartesianAxis.AXIS_YAW]]
-            code = self.controller.arm.set_servo_cartesian(
+            code = self.controller.arm.set_servo_cartesian_aa(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
                 exit()
