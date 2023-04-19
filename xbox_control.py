@@ -30,6 +30,9 @@ class ArmMode(enum.IntEnum):
 def empty():
     return
 
+
+enable_control = True
+
 # Mapping for a button.
 # code - the code as returned by python input library when the button is pressed
 # name - the display name of the button
@@ -155,7 +158,7 @@ class ServoCartesianXyz(Handler):
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
                         self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
                         self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
-            code = self.controller.arm.set_servo_cartesian_aa(
+            code = self.controller.arm.set_servo_cartesian(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
                 exit()
@@ -302,6 +305,7 @@ class XboxController:
                         Button(id='BTN_TL', name='Left Bumper'),
                         Button(id='BTN_TR', name='Right Bumper'),
                         Button(id='BTN_SOUTH', name='A'),
+                        Button(id='BTN_EAST', name='B'),
                         JoyServoControllerAxis(
                             id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=2.0),
                         JoyServoControllerAxis(
@@ -331,6 +335,11 @@ class XboxController:
             ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
         self.buttons[4].set_handler(
             ButtonAction.PRESS, lambda: self.arm.stop_lite6_gripper())
+        self.buttons[5].set_handler(
+            ButtonAction.PRESS, lambda: self.toggle_control())
+
+    def toggle_control(self)
+    enable_control = not enable_control
 
     def _check_code(self, code, label):
         if code != 0:
@@ -345,9 +354,10 @@ class XboxController:
         while True:
             events = get_gamepad()
             for event in events:
-                for button in self.buttons:
-                    if button.notify_event(event.code, event.state):
-                        break
+                if enable_control:
+                    for button in self.buttons:
+                        if button.notify_event(event.code, event.state):
+                            break
                 # for mapping in self.button_mappings:
                 #     if event.code == mapping.code:
                 #         _angle_speed = 35
@@ -390,9 +400,10 @@ if __name__ == '__main__':
     # needs_update = True
     while (True):
         time.sleep(0.02)
-        for button in joy.buttons:
-            button.notify_interval()
-        joy.cart.notify_interval()
+        if enable_control:
+            for button in joy.buttons:
+                button.notify_interval()
+            joy.cart.notify_interval()
         # if (pose_delta != [0, 0, 0, 0, 0, 0]):
         #     for i in range(6):
         #         current_pose[i] += pose_delta[i]
