@@ -132,20 +132,42 @@ class CartesianAxis(enum.IntEnum):
     AXIS_X = 0
     AXIS_Y = 1
     AXIS_Z = 2
-    AXIS_ROLL_X = 3
-    AXIS_ROLL_Y = 4
-    AXIS_ROLL_Z = 5
+    AXIS_ROLL_X = 3  # or ROLL for set_servo_cartesian
+    AXIS_ROLL_Y = 4  # or PITCH for set_servo_cartesian
+    AXIS_ROLL_Z = 5  # or YAW for set_servo_cartesian
+    AXIS_ANGLE_4 = 6
+    AXIS_ANGLE_5 = 7
+    AXIS_ANGLE_6 = 8
 
 
 class ServoCartesianXyz(Handler):
-    def __init__(self, name, controller, initial_x, initial_y, initial_z):
+    def __init__(self, name, controller):
         self.name = name
-        self.coordinates = starting_pose
+        self.coordinates = starting_pose[0:6]
         self.controller = controller
         self.updated = False
 
     def add_delta(self, axis, value):
-        self.coordinates[axis] += value
+        if (axis >= CartesianAxis.AXIS_ANGLE_4):
+            current_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
+                            self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
+                            self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
+            joint_positions_with_err = self.controller.arm.get_inverse_kinematics(
+                current_pose)
+            if joint_positions_with_err[0] != 0:
+                return
+                # raise RuntimeError("Inverse kinematics failed")
+            joint_positions = joint_positions_with_err[1]
+            print(f"Joint Positions: {joint_positions}")
+            joint_index = axis - CartesianAxis.AXIS_ANGLE_4 + 3
+            joint_positions[joint_index] += value
+            new_loc_with_err = self.controller.arm.get_forward_kinematics(
+                joint_positions)
+            if new_loc_with_err[0] != 0:
+                raise RuntimeError("Forward kinematics failed")
+            self.coordinates = new_loc_with_err[1]
+        else:
+            self.coordinates[axis] += value
         print(self.name, "Position:", self.coordinates)
         self.updated = True
 
@@ -155,7 +177,8 @@ class ServoCartesianXyz(Handler):
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
                         self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
                         self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
-            code = self.controller.arm.set_servo_cartesian_aa(
+            # For ROLL_X/Y/Z instead of ROLL/PITCH/YAW, use set_servo_cartesian_aa.  Cannot be used with AXIS_ANGLE_XXX
+            code = self.controller.arm.set_servo_cartesian(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
                 exit()
@@ -206,7 +229,7 @@ class TriggerAnalogAxis(AnalogAxis):
 class TriggerServoControllerAxis(TriggerAnalogAxis):
     def __init__(self, name,  id, servo_cartesian_xyz, axis, multiplier):
         super().__init__(
-            name,  id, initial_value=servo_cartesian_xyz.coordinates[axis], multiplier=multiplier)
+            name,  id, initial_value=starting_pose[axis], multiplier=multiplier)
         super().set_handler(
             handler=lambda delta: servo_cartesian_xyz.add_delta(axis, delta))
 
@@ -214,7 +237,7 @@ class TriggerServoControllerAxis(TriggerAnalogAxis):
 class JoyServoControllerAxis(JoyAnalogAxis):
     def __init__(self, name, id,  servo_cartesian_xyz, axis, multiplier):
         super().__init__(
-            name, id, initial_value=servo_cartesian_xyz.coordinates[axis], multiplier=multiplier)
+            name, id, initial_value=starting_pose[axis], multiplier=multiplier)
         super().set_handler(
             handler=lambda delta: servo_cartesian_xyz.add_delta(axis, delta))
 
@@ -240,8 +263,7 @@ class JoyMapping(Mapping):
         self.deadzone = deadzone
 
 
-starting_pose = [241, -23, 352, 180, 0, 0]
-pose_delta = [0, 0, 0, 0, 0, 0]
+starting_pose = [241, -23, 352, 180, 0, 0, 0, 0, 0]
 my_speed = 30
 my_mvacc = 5000
 
@@ -285,31 +307,30 @@ class XboxController:
         self._state_changed_callback = False
         self._count_changed_callback = False
         self._error_warn_changed_callback = False
+        self.arm.clean_error()
         self.arm.set_mode(mode=ArmMode.POSITION_CONTROL_MODE)
         self.arm.set_state(ArmState.SPORT_STATE)
-        self.arm.set_position(*starting_pose, wait=True)
+        self.arm.set_position(*starting_pose[0:6], wait=True)
         self.arm.set_mode(mode=ArmMode.SERVO_MOTION_MODE)
         self.arm.set_state(ArmState.SPORT_STATE)
         self.arm.motion_enable(enable=True)
         self.it_changed = False
         self.cart = ServoCartesianXyz(
-            "Robot position", self, starting_pose[0], starting_pose[1], starting_pose[2])
+            "Robot position", self)
 
-    #   JoyMapping('ABS_RZ', 'Right Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
-    #                    JoyMapping('ABS_Z', 'Left Trigger', MAX_TRIG_VAL, TRIG_DEAD_ZONE, empty),  # NOQA
         self.buttons = [Button(id='BTN_NORTH', name='Y'),
                         Button(id='BTN_WEST', name='X'),
                         Button(id='BTN_TL', name='Left Bumper'),
                         Button(id='BTN_TR', name='Right Bumper'),
                         Button(id='BTN_SOUTH', name='A'),
                         JoyServoControllerAxis(
-                            id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=2.0),
+                            id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=1.0),
                         JoyServoControllerAxis(
-                            id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y, multiplier=2.0),
+                            id='ABS_Y', name="Left Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Y, multiplier=1.0),
                         JoyServoControllerAxis(
-                            id='ABS_RX', name="Right Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL_X, multiplier=0.5),
+                            id='ABS_RX', name="Right Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ANGLE_4, multiplier=1.0),
                         JoyServoControllerAxis(
-                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ROLL_Y, multiplier=0.5),
+                            id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ANGLE_5, multiplier=1.0),
                         # JoyServoControllerAxis(
                         #     id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z),
                         TriggerServoControllerAxis(
@@ -322,13 +343,13 @@ class XboxController:
         self.buttons[1].set_handler(
             ButtonAction.PRESS, lambda: self.arm.open_lite6_gripper())
         self.buttons[2].set_handler(
-            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ANGLE_6, -1.0))
         self.buttons[3].set_handler(
-            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
+            ButtonAction.PRESS, lambda: self.cart.add_delta(CartesianAxis.AXIS_ANGLE_6, 1.0))
         self.buttons[2].set_handler(
-            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, -1.0))
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ANGLE_6, -1.0))
         self.buttons[3].set_handler(
-            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ROLL_Z, 1.0))
+            ButtonAction.HOLD_REPEAT, lambda: self.cart.add_delta(CartesianAxis.AXIS_ANGLE_6, 1.0))
         self.buttons[4].set_handler(
             ButtonAction.PRESS, lambda: self.arm.stop_lite6_gripper())
 
@@ -348,40 +369,6 @@ class XboxController:
                 for button in self.buttons:
                     if button.notify_event(event.code, event.state):
                         break
-                # for mapping in self.button_mappings:
-                #     if event.code == mapping.code:
-                #         _angle_speed = 35
-                #         _angle_acc = 350
-                #         code = 0
-
-                #         self.arm.release_error_warn_changed_callback(
-                #             self._error_warn_changed_callback)
-                #         self.arm.release_state_changed_callback(
-                #             self._state_changed_callback)
-                #         if hasattr(self.arm, 'release_count_changed_callback'):
-                #             self.arm.release_count_changed_callback(
-                #                 self._count_changed_callback)
-                #         # Figure out the normalized value
-                #         new_value = event.state/mapping.divisor
-                #         # Apply the deadzone
-                #         if (new_value > -mapping.deadzone and new_value < mapping.deadzone):
-                #             new_value = 0
-                #         if (mapping.value == new_value):
-                #             # no change
-                #             continue
-                #         # cache the new value
-                #         mapping.value = new_value
-                #         # Print it out
-                #         print(
-                #             f"Button {mapping.name} value {mapping.value}")
-                #         # if (new_value != 0):
-                #         # code = self.arm.set_servo_angle(angle=[-18.4, 36.4, 69.6, 0.0, 33.2, -18.4], speed=_angle_speed, mvacc=_angle_acc, wait=True, radius=0.0)
-                #         if (mapping.call != empty):
-                #             code = mapping.call(self, new_value)
-                #             self.first_motion = False
-                #             if not self._check_code(code, 'set_servo_cartesian'):
-                #                 return
-                #         # if (new_value == 0):
 
 
 if __name__ == '__main__':
@@ -393,10 +380,3 @@ if __name__ == '__main__':
         for button in joy.buttons:
             button.notify_interval()
         joy.cart.notify_interval()
-        # if (pose_delta != [0, 0, 0, 0, 0, 0]):
-        #     for i in range(6):
-        #         current_pose[i] += pose_delta[i]
-        #     code = joy.arm.set_servo_cartesian(
-        #         current_pose, speed=my_speed, mvacc=my_mvacc)
-        #     if not joy._check_code(code, 'set_servo_cartesian'):
-        #         exit()
