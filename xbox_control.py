@@ -132,9 +132,9 @@ class CartesianAxis(enum.IntEnum):
     AXIS_X = 0
     AXIS_Y = 1
     AXIS_Z = 2
-    AXIS_ROLL_X = 3
-    AXIS_ROLL_Y = 4
-    AXIS_ROLL_Z = 5
+    AXIS_ROLL_X = 3  # or ROLL for set_servo_cartesian
+    AXIS_ROLL_Y = 4  # or PITCH for set_servo_cartesian
+    AXIS_ROLL_Z = 5  # or YAW for set_servo_cartesian
     AXIS_ANGLE_4 = 6
     AXIS_ANGLE_5 = 7
     AXIS_ANGLE_6 = 8
@@ -177,6 +177,7 @@ class ServoCartesianXyz(Handler):
             new_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
                         self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
                         self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
+            # For ROLL_X/Y/Z instead of ROLL/PITCH/YAW, use set_servo_cartesian_aa.  Cannot be used with AXIS_ANGLE_XXX
             code = self.controller.arm.set_servo_cartesian(
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
