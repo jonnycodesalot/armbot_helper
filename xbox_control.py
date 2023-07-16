@@ -9,7 +9,8 @@ import enum
 from xarm import version
 
 
-# Enums for the various arm APIs
+# Enums for the various Lite6 API constants, so
+# there aren't magic numbers all over the place
 class ArmState(enum.IntEnum):
     SPORT_STATE = 0
     PAUSE_STATE = 3
@@ -25,6 +26,8 @@ class ArmMode(enum.IntEnum):
     CART_VELO_CONTROL_MODE = 5
     JOINT_ONLINE_TRAJ_PLAN_MODE = 6
     CART_ONLINE_TRAJ_PLAN_MODE = 7
+
+#
 
 
 def empty():
@@ -87,10 +90,13 @@ class Button(Control, Handler):
         self.intervals_since_update = 1
         self.press_hold_action_performed = False
 
-    # Set a handler for a specific button action
+    # Set a handler for a specific button action, the function
+    # that gets called when that button action is performed.
     def set_handler(self, button_action, handler):
         self.handlers[button_action] = handler
 
+    # when an update comes in from the controller, this wll be called with the
+    # value of the button.  It will update our internal state
     def notify_update(self, value):
         self.state = value
         handler = None
@@ -101,6 +107,8 @@ class Button(Control, Handler):
         # Reset our hold interval counter
         self.intervals_since_update = 0
 
+    # When an arm action interval occurs, this will be called to move the arm
+    # in accordance with the latest result from calls to notify_update
     def notify_interval(self):
         handler = None
         output_prefix = ""
@@ -128,6 +136,9 @@ class Button(Control, Handler):
             handler()
 
 
+# An enum for all the possible axes of motion that could be changed.
+# Note that the rotational ones aren't actually cartesian, so theres some
+# misnomer action here.
 class CartesianAxis(enum.IntEnum):
     AXIS_X = 0
     AXIS_Y = 1
@@ -139,6 +150,12 @@ class CartesianAxis(enum.IntEnum):
     AXIS_ANGLE_5 = 7
     AXIS_ANGLE_6 = 8
 
+# ServoCartesianXyz is an object to track the current desired position of the
+# Robot.  Basically, it's a set of numbers for all the axes the robot can move in,
+# and handlers that can be in response to button presses to manipulate those values.
+# Button motions from joys are incremental, so basically this is keeping track of the
+# current result of all the incremental changes, in every axis.
+
 
 class ServoCartesianXyz(Handler):
     def __init__(self, name, controller):
@@ -149,6 +166,11 @@ class ServoCartesianXyz(Handler):
 
     def add_delta(self, axis, value):
         if (axis >= CartesianAxis.AXIS_ANGLE_4):
+            # To control individual joint angles, we have to do some of the math directly, because the function we
+            # want to use to control the robot (set_servo_cartesian) won't accept joint angles, only roll/pitch/yaw.  So we
+            # calculate via inverse kinematics what our current joint positions are, modify those to account for
+            # the control request, then feed them back in to forward kinematics to get the corresponding roll/pitch/yaw.
+            # Then we can feed that into the actual control functions.
             current_pose = [self.coordinates[CartesianAxis.AXIS_X], self.coordinates[CartesianAxis.AXIS_Y],
                             self.coordinates[CartesianAxis.AXIS_Z], self.coordinates[CartesianAxis.AXIS_ROLL_X],
                             self.coordinates[CartesianAxis.AXIS_ROLL_Y], self.coordinates[CartesianAxis.AXIS_ROLL_Z]]
@@ -182,6 +204,9 @@ class ServoCartesianXyz(Handler):
                 new_pose, speed=my_speed, mvacc=my_mvacc)
             if not self.controller._check_code(code, 'set_servo_cartesian'):
                 exit()
+
+# Common functionality for both types of analog axis. This is further specified for Joy axis
+# and analog Trigger axes
 
 
 class AnalogAxis(Control):
@@ -225,6 +250,9 @@ class TriggerAnalogAxis(AnalogAxis):
     def __init__(self, name, id,  initial_value, multiplier):
         super().__init__(name, id, initial_value, self.MAX_TRIGGER_VAL, multiplier)
 
+# These two classes smoosh references to our set_servo_cartesian object onto
+# the implementations above
+
 
 class TriggerServoControllerAxis(TriggerAnalogAxis):
     def __init__(self, name,  id, servo_cartesian_xyz, axis, multiplier):
@@ -240,6 +268,8 @@ class JoyServoControllerAxis(JoyAnalogAxis):
             name, id, initial_value=starting_pose[axis], multiplier=multiplier)
         super().set_handler(
             handler=lambda delta: servo_cartesian_xyz.add_delta(axis, delta))
+
+# Base mapping. Further derived from below.
 
 
 class Mapping:
@@ -263,7 +293,10 @@ class JoyMapping(Mapping):
         self.deadzone = deadzone
 
 
+# Starting position of the robot, where the order of the numbers corresponds
+# the order of axes in CartesianAxis.
 starting_pose = [241, -23, 352, 180, 0, 0, 0, 0, 0]
+# Experimentally determined values ot be sent to the Lite6 arm functions
 my_speed = 30
 my_mvacc = 5000
 
@@ -272,10 +305,13 @@ class XboxController:
 
     MAX_TRIG_VAL = math.pow(2, 8)
     MAX_JOY_VAL = math.pow(2, 15)
-    # Expirimentally determined
+    # Expirimentally determined.
     JOY_DEAD_ZONE = 0.05
     TRIG_DEAD_ZONE = 0.0
 
+    # This is no longer used for the actual button mappings, but I'm keeping it here
+    # because it tells me the codenames for all the buttons on the controller
+    # that I'm might care about (BTN_EAST means B Button, and so on)
     # button_mappings = [Mapping('BTN_EAST', 'B Button', increment_z),
     #                Mapping('BTN_WEST', 'X Button', increment_x),
     #                Mapping('BTN_NORTH', 'Y Button', increment_y),
@@ -318,11 +354,19 @@ class XboxController:
         self.cart = ServoCartesianXyz(
             "Robot position", self)
 
+        # Defines all the buttons that we care about. Every "Button" is just an analog on/off button,
+        # while JoyServerControllerAxis defines an analog axis that can have more complicated
+        # behaviors assigned to the Joy.  Similar for the TriggerServoControllerAxis that can
+        # be linked to analog triggers.
         self.buttons = [Button(id='BTN_NORTH', name='Y'),
                         Button(id='BTN_WEST', name='X'),
                         Button(id='BTN_TL', name='Left Bumper'),
                         Button(id='BTN_TR', name='Right Bumper'),
                         Button(id='BTN_SOUTH', name='A'),
+                        # Every analog axis has to specify the id/code for the button, the button's pretty name,
+                        # a reference to the ServoCartesian object we'll be updating, the axis on that ServoCartesian
+                        # object that the axis applies to, and a multiplier that should be applied to the button values
+                        # when updating the axis value.
                         JoyServoControllerAxis(
                             id='ABS_X', name="Left Joy X", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_X, multiplier=1.0),
                         JoyServoControllerAxis(
@@ -333,11 +377,15 @@ class XboxController:
                             id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_ANGLE_5, multiplier=1.0),
                         # JoyServoControllerAxis(
                         #     id='ABS_RY', name="Right Joy Y", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z),
+                        # Trigger ones work basically the same as the Joy ones - they're just using different deadzone constants inside.
                         TriggerServoControllerAxis(
                             id='ABS_RZ', name="Trig Right", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z, multiplier=2.0),
                         TriggerServoControllerAxis(
                             id='ABS_Z', name="Trig Left", servo_cartesian_xyz=self.cart, axis=CartesianAxis.AXIS_Z, multiplier=-2.0)
                         ]
+
+        # I fully admit this is sloppy, but this is where actions are set for the digital buttons deviced above. The index of
+        # buttons is just an ordinal  - need to neaten this up somehow
         self.buttons[0].set_handler(
             ButtonAction.PRESS, lambda: self.arm.close_lite6_gripper())
         self.buttons[1].set_handler(
